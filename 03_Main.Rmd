@@ -5,23 +5,26 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
 
+# knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(leaps)
 library(glmnet)
 library(gridExtra)
 library(caret)
 library(broom)
+library(lubridate)
 
 # Import the data and create and train and test set
 mydata <- read.csv("Data/analysisData.csv", stringsAsFactors = F)
 scoring <- read.csv("Data/scoringData.csv", stringsAsFactors = F)
 
-set.seed(1431)
-split <- createDataPartition(mydata$price, p = 0.8, list = FALSE, groups = 100)
-train <- as_tibble(mydata[split, ])
-test <- as_tibble(mydata[-split, ])
+set.seed(1251)
+split <- createDataPartition(mydata$price, p = 0.8, list = F, groups = 50)
+train <- mydata[split, ]
+test <- mydata[-split, ]
+
+nrow(train) + nrow(test) == nrow(mydata)
 
 ```
 
@@ -76,7 +79,7 @@ tab.missing(train)
 ```
 
 
-Some obervations:
+Some obervations on the missing data:
 
 * There are a small number of missing values (less than 10) for beds, reviews per month, and host listings counts. The missing values have been removed for further analysis.
 * Square feet has over 29,000 missing values and does not provide any additional influence to Airbnb prices.
@@ -85,7 +88,8 @@ Some obervations:
 ```{r}
 
 train <- train %>% 
-    filter(!is.na(beds), !is.na(reviews_per_month), !is.na(host_listings_count), !is.na(host_total_listings_count)) %>%
+    filter(!is.na(beds), !is.na(reviews_per_month),
+           !is.na(host_listings_count),!is.na(host_total_listings_count)) %>%
     mutate(security_deposit2 = ifelse(security_deposit > 0, 1, 0),
            cleaning_fee2 = ifelse(cleaning_fee > 0, 1, 0)) %>%
     select(-security_deposit, -cleaning_fee, -square_feet)
@@ -93,7 +97,15 @@ train <- train %>%
 train$security_deposit2[is.na(train$security_deposit2)] <- 0
 train$cleaning_fee2[is.na(train$cleaning_fee2)] <- 0
 
-# Make corresponding additional feature additions to scoringdata and test data
+test <- test %>%
+    filter(!is.na(beds), !is.na(reviews_per_month),
+           !is.na(host_listings_count),!is.na(host_total_listings_count)) %>%
+    mutate(security_deposit2 = ifelse(security_deposit > 0, 1, 0),
+           cleaning_fee2 = ifelse(cleaning_fee > 0, 1, 0)) %>%
+    select(-security_deposit, -cleaning_fee, -square_feet)
+
+
+# Make corresponding additional feature additions to scoringdata
 scoring <- scoring %>%
     mutate(security_deposit2 = ifelse(security_deposit > 0, 1, 0),
            cleaning_fee2 = ifelse(cleaning_fee > 0, 1, 0))
@@ -101,17 +113,13 @@ scoring <- scoring %>%
 scoring$security_deposit2[is.na(scoring$security_deposit2)] <- 0
 scoring$cleaning_fee2[is.na(scoring$cleaning_fee2)] <- 0
 
-test <- test %>%
-    mutate(security_deposit2 = ifelse(security_deposit > 0, 1, 0),
-           cleaning_fee2 = ifelse(cleaning_fee > 0, 1, 0))
-
-test$security_deposit2[is.na(test$security_deposit2)] <- 0
-test$cleaning_fee2[is.na(test$cleaning_fee2)] <- 0
 ```
 
 ### Understanding correlations in the numeric data
 
-There are a number of numerical variables that are quite similar to one another which may result in multicollinearity concerns if used together for modeling. These relate to:
+There are a number of numerical variables that are quite similar to one another which may result in multicollinearity concerns if used together for modeling. Including them all in the model will present multicollinearity concerns. A decision has been made in these instances to use the most intuitive and interpretable variable only.
+
+These relate to:
 
 * total listings by host
 * the various variables for maximum and minimum nights are highly correlated with each other
@@ -126,48 +134,175 @@ train <- train %>%
           -availability_60, -availability_90, -number_of_reviews_ltm)
 ```
 
+### Analyzing text data
+
+There are around 50 character variables that may influence Airbnb prices, which be broken into the following categories:
+
+* about the property
+* about the host
+* location of the property
+* additional factors.
+
+**About the property**
+
+Variables *summary* and *desciption* contain roughly the same values. *Description* is more comprehensive, so *summary* has been dropped. New factor variables have been created from:
+
+* space
+* neighborhood_overview
+* notes
+* transit
+* access
+* interaction
+* house_rules. 
+
+to capture whether additional information on each of the variables have been provided at all.
+
+```{r}
+
+# Feature engineering about the property
+train <- train %>%
+    select(-summary) %>%
+    mutate(description_length = nchar(description),
+           name_length = nchar(name),
+           has_space = ifelse(nchar(space) != 0, 1, 0),
+           has_nboverview = ifelse(nchar(neighborhood_overview) != 0, 1, 0),
+           has_notes = ifelse(nchar(notes) != 0, 1, 0),
+           has_transit = ifelse(nchar(transit) != 0, 1, 0),
+           has_access = ifelse(nchar(access) != 0, 1, 0),
+           has_interaction = ifelse(nchar(interaction) != 0, 1, 0),
+           has_hrules = ifelse(nchar(house_rules) != 0, 1, 0)) %>%
+    select(-description, -name, -space, -neighborhood_overview, 
+           -notes, -transit, -access, -interaction, -house_rules)
+
+
+# apply again to scoring data and test data
+
+test <- test %>%
+    select(-summary) %>%
+    mutate(description_length = nchar(description),
+           name_length = nchar(name),
+           has_space = ifelse(nchar(space) != 0, 1, 0),
+           has_nboverview = ifelse(nchar(neighborhood_overview) != 0, 1, 0),
+           has_notes = ifelse(nchar(notes) != 0, 1, 0),
+           has_transit = ifelse(nchar(transit) != 0, 1, 0),
+           has_access = ifelse(nchar(access) != 0, 1, 0),
+           has_interaction = ifelse(nchar(interaction) != 0, 1, 0),
+           has_hrules = ifelse(nchar(house_rules) != 0, 1, 0)) %>%
+    select(-description, -name, -space, -neighborhood_overview, 
+           -notes, -transit, -access, -interaction, -house_rules)
+
+
+scoring <- scoring %>%
+    select(-summary) %>%
+    mutate(description_length = nchar(description),
+           name_length = nchar(name),
+           has_space = ifelse(nchar(space) != 0, 1, 0),
+           has_nboverview = ifelse(nchar(neighborhood_overview) != 0, 1, 0),
+           has_notes = ifelse(nchar(notes) != 0, 1, 0),
+           has_transit = ifelse(nchar(transit) != 0, 1, 0),
+           has_access = ifelse(nchar(access) != 0, 1, 0),
+           has_interaction = ifelse(nchar(interaction) != 0, 1, 0),
+           has_hrules = ifelse(nchar(house_rules) != 0, 1, 0)) %>%
+    select(-description, -name, -space, -neighborhood_overview, 
+           -notes, -transit, -access, -interaction, -house_rules)
+
+```
+
+**About the host**
+
+* Dropped variables: host_name, host_about,  host_response_rate, host_acceptance_rate, host_response_time, host_neighborhood, host_verifications, host_location, calendar_updated
+* host_since has been broken down to year, month, date
+* to factors: host_response_time, host_is_superhost
+
+```{r}
+
+train <- train %>%
+    select(-host_name, -host_about, -host_response_rate, 
+           -host_acceptance_rate, -host_neighbourhood, -host_verifications,
+           -host_has_profile_pic, -calendar_updated, -host_response_time) %>%
+    mutate(host_since2 = as.Date(host_since)) %>%
+    mutate(host_year = year(host_since2),
+           host_month = month(host_since2)) %>%
+    mutate(host_superhost = ifelse(host_is_superhost == "t", 1, 0)) %>%
+    select(-host_since2)
+
+test <- test %>%
+    select(-host_name, -host_about, -host_response_rate, 
+           -host_acceptance_rate, -host_neighbourhood, -host_verifications,
+           -host_has_profile_pic) %>%
+    mutate(host_since2 = as.Date(host_since)) %>%
+    mutate(host_year = year(host_since2),
+           host_month = month(host_since2)) %>%
+    mutate(host_superhost = ifelse(host_is_superhost == "t", 1, 0))
+
+
+scoring <- scoring %>%
+    select(-host_name, -host_about, -host_response_rate, 
+           -host_acceptance_rate, -host_neighbourhood, -host_verifications,
+           -host_has_profile_pic) %>%
+    mutate(host_since2 = as.Date(host_since)) %>%
+    mutate(host_year = year(host_since2),
+           host_month = month(host_since2)) %>%
+    mutate(host_superhost = ifelse(host_is_superhost == "t", 1, 0))
+
+```
+
+
+**Location and other variables**
+
+* Dropped variables: street (too granular), city, neighborhood, neighborhood_cleansed, state, market, smart_location, country_code, country, is_location_exact, bed_type, zipcode, requires_license, license, jurisdiction_names, instant_bookable, is_business_travel_ready, cancellation_policy
+* turn amenities to length
+
+```{r}
+
+train <- train %>%
+    select(-street, -city, -neighbourhood, -neighbourhood_cleansed, -state,
+           -smart_location, -country_code, -country, -is_location_exact, -bed_type, -zipcode,
+           -contains("_price"), -requires_license, -license, -jurisdiction_names, 
+           -instant_bookable, -is_business_travel_ready, -cancellation_policy) %>%
+    mutate(amenities_length = nchar(amenities)) %>%
+    select(-amenities)
+
+
+test <- test %>%
+    select(-street, -city, -neighbourhood, -neighbourhood_cleansed, -state,
+           -smart_location, -country_code, -country, -is_location_exact, -bed_type, -zipcode) %>%
+    mutate(amenities_length = nchar(amenities)) %>%
+    select(-amenities)
+
+scoring <- scoring %>%
+    select(-street, -city, -neighbourhood, -neighbourhood_cleansed, -state,
+           -smart_location, -country_code, -country, -is_location_exact, -bed_type, -zipcode) %>%
+    mutate(amenities_length = nchar(amenities)) %>%
+    select(-amenities)
+
+```
+
 
 ## 3. Model selection
 
-Let's first create the final dataset for modeling and see the results of modeling
+Let's first create the final dataset for modeling and see the results of modeling.
 
 ```{r}
-# mdata is a placeholder atm with just numeric variables with no NAs
-mdata <- train
 
-# Placeholder to just get numeric variables
-locs <- lapply(mdata, is.numeric) %>% unlist()
-mdata <- mdata[, locs] %>% select(-contains("_price"))
+# mdata is a placeholder atm with just numeric variables with no NAs
+mdata <- train %>%
+    select(-id, -host_since) %>%
+    
+
+locs <- lapply(train, is.numeric) %>% unlist()
+mdata <- train[, locs] %>% select(-contains("_price"), -id)
+
 ```
 
 ### Modeling Framework
 
 >Step 1: Choose the model that results in the best RMSE first.
 
-1. Forward stepwise model
-2. Lasso regression
-3. Regression tree
-4. Random forest
-5. Gradient boosting
-
->Step 2: Refine best model for making predictions
-
-### Forward stepwise model outputs
-
-```{r}
-
-# Forward stepwise model
-start_model <- lm(price ~ 1, mdata)
-end_model <- lm(price ~ ., mdata)
-
-model <- step(start_model, 
-              scope = list(upper = end_model, lower = start_model), 
-              direction = "forward",
-              trace = F)
-summary(model)
-
-
-```
+1. Lasso regression
+2. Regression tree
+3. Random forest
+4. Gradient boosting
 
 ### Lasso model outputs
 
@@ -176,6 +311,7 @@ summary(model)
 X <- model.matrix(price ~ ., mdata)
 y <- mdata$price
 
+# Defaulted to 10-fold validation
 set.seed(1431)
 cv.lasso <- cv.glmnet(X, y, alpha = 1)
 plot(cv.lasso)
@@ -185,11 +321,13 @@ coef(cv.lasso, s = cv.lasso$lambda.min)
 ```
 
 
+>Step 2: Refine best model for making predictions
+
 ## 4. Model Assessment
 
 ```{r}
 # Calculate RMSEs
-pred <- predict(model)
+pred <- predict(cv.lasso, newx = mdata)
 
 rmse <- mean((train$price - pred)^2) %>% sqrt()
 
