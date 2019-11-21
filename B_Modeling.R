@@ -1,27 +1,13 @@
 library(tidyverse)
-library(leaps)
-library(glmnet)
 library(gridExtra)
 library(caret)
-library(broom)
-library(lubridate)
 library(randomForest)
-library(zipcode)
 
+rm(list = ls())
 
 load("Cleaned_data/train.Rdata")
 load("Cleaned_data/test.Rdata")
 load("Cleaned_data/scoring.Rdata")
-# data("zipcode")
-
-# Removing missing values
-# Tabularize counts of missingness
-# tab.missing <- function(df){
-#   lapply(df, function(x){sum(is.na(x))}) %>% unlist()
-# }
-# 
-# tab.missing(clean_train)
-
 
 ##### Turn variables to factors
 f_vars <- c("host_superhost", "host_verified", 
@@ -33,66 +19,86 @@ clean_train[f_vars] <- lapply(clean_train[f_vars], factor)
 test[f_vars] <- lapply(test[f_vars], factor)
 scoring[f_vars] <- lapply(scoring[f_vars], factor)
 
+clean_train$square_feet2 <- ifelse(is.na(clean_train$square_feet),
+                                   mean(clean_train$square_feet, na.rm = T),
+                                   clean_train$square_feet)
+
+test$square_feet2 <- ifelse(is.na(test$square_feet),
+                                   mean(test$square_feet, na.rm = T),
+                                   test$square_feet)
+
+scoring$square_feet2 <- ifelse(is.na(scoring$square_feet),
+                                   mean(scoring$square_feet, na.rm = T),
+                                   scoring$square_feet)
+
+
 
 ########## THE MODEL ##########
 
-
 # Model being used for modeling
 model_formula <- price ~
-  host_superhost +
-  host_verified +
-  as.numeric(host_since2) +
+  host_superhost + host_verified + host_since2 +
   calculated_host_listings_count_entire_homes +
   calculated_host_listings_count_private_rooms +
   calculated_host_listings_count_shared_rooms +
-  neighbourhood_group_cleansed +
-  is_location_exact +
-  number_of_reviews_ltm +
-  bed_type +
-  instant_bookable +
-  cancellation_policy +
-  description_length +
-  bathrooms +
-  bedrooms +
-  beds +
-  latitude +
-  longitude +
-  minimum_nights_avg_ntm +
-  availability_365 +
-  review_scores_value +
-  as.numeric(last_rev_days) +
-  reviews_per_month +
-  room_type +
-  guests_included +
-  extra_people +
-  accommodates +
-  availability_30 +
+  neighbourhood_group_cleansed + is_location_exact +
+  number_of_reviews_ltm + bed_type + instant_bookable +
+  cancellation_policy + description_length +
+  name_length + space_length + bathrooms +
+  bedrooms + beds + latitude + longitude +
+  minimum_nights_avg_ntm + availability_365 +
+  review_scores_value + last_rev_days +
+  reviews_per_month + room_type + guests_included +
+  extra_people + accommodates + availability_30 +
   review_scores_rating +
   review_scores_cleanliness +
   review_scores_location +
-  has_transit +
-  has_hrules +
+  has_transit + has_hrules + 
   has_sdeposit +
-  availability_60 +
-  review_scores_checkin +
-  review_scores_communication +
-  review_scores_accuracy +
-  has_IT +
-  has_WF +
-  has_AC +
-  has_KN +
-  has_WS +
-  has_HT +
-  has_TV +
-  has_BF +
-  has_GY +
-  has_SB +
-  availability_90 +
-  is_apartment +
-  has_cleaning +
-  as.numeric(listing_time) +
-  cleaning_fee +
-  host_year
+  availability_60 + review_scores_checkin +
+  review_scores_communication + review_scores_accuracy +
+  has_IT + has_WF + has_AC + has_KN + has_WS + has_HT +
+  has_TV + has_BF + has_GY + has_SB + availability_90 +
+  has_DM + has_EV + has_PL + has_ES +
+  is_apartment + has_cleaning + listing_time +
+  cleaning_fee + host_year +
+  is_hotel + is_condo + is_house + is_loft +
+  is_townhouse +
+  require_guest_phone_verification + host_about_length +
+  host_response100 + recent_update
+
+
+
+# clean_train %>%
+#   select(price, host_superhost , host_verified , host_since2 ,
+#              calculated_host_listings_count_entire_homes ,
+#              calculated_host_listings_count_private_rooms ,
+#              calculated_host_listings_count_shared_rooms ,
+#              neighbourhood_group_cleansed , is_location_exact ,
+#              number_of_reviews_ltm , bed_type , instant_bookable ,
+#              cancellation_policy , description_length ,
+#              name_length , space_length , bathrooms ,
+#              bedrooms , beds , latitude , longitude ,
+#              minimum_nights_avg_ntm , availability_365 ,
+#              review_scores_value , last_rev_days ,
+#              reviews_per_month , room_type , guests_included ,
+#              extra_people , accommodates , availability_30 ,
+#              review_scores_rating ,
+#              review_scores_cleanliness ,
+#              review_scores_location ,
+#              has_transit , has_hrules , 
+#              has_sdeposit ,
+#              availability_60 , review_scores_checkin ,
+#              review_scores_communication , review_scores_accuracy ,
+#              has_IT , has_WF , has_AC , has_KN , has_WS , has_HT ,
+#              has_TV , has_BF , has_GY , has_SB , availability_90 ,
+#              has_DM , has_EV , has_PL , has_ES ,
+#              is_apartment , has_cleaning , listing_time ,
+#              cleaning_fee , host_year ,
+#              is_hotel , is_condo , is_house , is_loft ,
+#              is_townhouse ,
+#              require_guest_phone_verification , host_about_length ,
+#              host_response100 , recent_update) %>% summary()
 
 
 ########## RANDOM FOREST CROSS VALIDATION ##########
@@ -101,35 +107,19 @@ model_formula <- price ~
 set.seed(258)
 # CV random forest - remove coefficients that don't make sense
 trControl <- trainControl(method= "cv", number = 3)
-tuneGrid <- expand.grid(mtry = 8)
+tuneGrid <- expand.grid(mtry = 30)
 
 cvForest <- train(model_formula,
                   clean_train,
-                 method = "rf",
-                 ntree = 100,
-                 trControl = trControl,
-                 tuneGrid = tuneGrid)
+                  method = "rf",
+                  ntree = 500,
+                  trControl = trControl,
+                  tuneGrid = tuneGrid)
 
 cvForest
 pred <- predict(cvForest, newdata = test)
 rmse <- mean((pred - test$price)^2) %>% sqrt()
 rmse
-
-########## GRADIENT BOOSTING ##########
-
-# set.seed(258)
-# 
-# boost <- gbm(model_formula, 
-#              clean_train,
-#              distribution="gaussian",
-#              n.trees = 1000,
-#              interaction.depth = 8,
-#              shrinkage = 0.001)
-# 
-# predBoost <- predict(boost, newdata = test, n.trees = 1000)
-# rmseBoost <- sqrt(mean((predBoost - test$price)^2))
-# rmseBoost
-
 
 ########## SCORE THE MODEL ##########
 

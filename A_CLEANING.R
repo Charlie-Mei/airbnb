@@ -19,56 +19,53 @@ split <- createDataPartition(mydata$price, p = 0.7, list = F, groups = 50)
 train <- mydata[split, ]
 test <- mydata[-split, ]
 
-# nrow(train) + nrow(test) == nrow(mydata)
-
-# Tabularize counts of missingness
-# tab.missing <- function(df){
-#   lapply(df, function(x){sum(is.na(x))}) %>% unlist()
-# }
-
 ########## ABOUT THE HOST ##########
 
 clean_train <- train
 
 # Feature engineering on details of the host
 clean_train <- train %>%
-  mutate(host_since2 = as.Date(host_since)) %>%
-  mutate(host_since2 = as.Date(host_since) - as.Date("2019-01-01") %>% as.numeric()) %>%
+  mutate(host_since2 = as.Date(host_since) - as.Date("2019-01-01")) %>%
   mutate(host_superhost = ifelse(host_is_superhost == "t", 1, 0),
-         host_verified = ifelse(host_identity_verified == "t", 1, 0))
+         host_verified = ifelse(host_identity_verified == "t", 1, 0),
+         host_about_length = nchar(host_about),
+         host_response100 = ifelse(host_response_rate == "100%", 1, 0) %>% as.factor())
 
 test <- test %>%
-  mutate(host_since2 = as.Date(host_since)) %>%
-  mutate(host_Since2 = as.Date(host_since) - as.Date("2019-01-01") %>% as.numeric()) %>%
+  mutate(host_since2 = as.Date(host_since) - as.Date("2019-01-01")) %>%
   mutate(host_superhost = ifelse(host_is_superhost == "t", 1, 0),
-         host_verified = ifelse(host_identity_verified == "t", 1, 0))
+         host_verified = ifelse(host_identity_verified == "t", 1, 0),
+         host_about_length = nchar(host_about),
+         host_response100 = ifelse(host_response_rate == "100%", 1, 0) %>% as.factor())
 
 
 scoring <- scoring %>%
-  mutate(host_since2 = as.Date(host_since)) %>%
-  mutate(host_Since2 = as.Date(host_since) - as.Date("2019-01-01") %>% as.numeric()) %>%
+  mutate(host_since2 = as.Date(host_since) - as.Date("2019-01-01")) %>%
   mutate(host_superhost = ifelse(host_is_superhost == "t", 1, 0),
-         host_verified = ifelse(host_identity_verified == "t", 1, 0))
+         host_verified = ifelse(host_identity_verified == "t", 1, 0),
+         host_about_length = nchar(host_about),
+         host_response100 = ifelse(host_response_rate == "100%", 1, 0) %>% as.factor())
+
+recent <- c("yesterday", "today", "2 days ago", "3 days ago", "4 days ago",
+            "5 days ago", "6 days ago", "a week ago", "1 week ago", "2 weeks ago")
+
+clean_train$recent_update <- ifelse(clean_train$calendar_updated %in% recent,
+                                    "Recent", "Not recent") %>% as.factor()
+test$recent_update <- ifelse(test$calendar_updated %in% recent,
+                                    "Recent", "Not recent") %>% as.factor()
+scoring$recent_update <- ifelse(scoring$calendar_updated %in% recent,
+                                    "Recent", "Not recent") %>% as.factor()
+
 
 ########## LOCATION ##########
 
-clean_train <- clean_train %>%
-  mutate(zipcode2 = as.numeric(zipcode))
-
-test <- test %>%
-  mutate(zipcode2 = as.numeric(zipcode))
-
-scoring <- scoring %>%
-  mutate(zipcode2 = as.numeric(zipcode))
-
-
 ### Latitude and longitude of zipcodes to use as additional features
-zip_ll <- zipcode %>% select(-city, -state)
 
-clean_train <- left_join(clean_train, zip_ll, by = c("zipcode" = "zip"))
-test <- left_join(test, zip_ll, by = c("zipcode" = "zip"))
-scoring <- left_join(scoring, zip_ll, by = c("zipcode" = "zip"))
+clean_train <- left_join(clean_train, zipcode %>% select(-city, -state), by = c("zipcode" = "zip"))
+test <- left_join(test, zipcode %>% select(-city, -state), by = c("zipcode" = "zip"))
+scoring <- left_join(scoring, zipcode %>% select(-city, -state), by = c("zipcode" = "zip"))
 
+# What to do with missing lats and lons
 clean_train$latitude[is.na(clean_train$latitude)] <- mean(clean_train$latitude, na.rm = T)
 clean_train$longitude[is.na(clean_train$longitude)] <- mean(clean_train$longitude, na.rm = T)
 
@@ -83,44 +80,62 @@ scoring$longitude[is.na(scoring$longitude)] <- mean(scoring$longitude, na.rm = T
 
 # Feature engineering about the property
 clean_train <- clean_train %>%
-  mutate(description_length = nchar(description) + nchar(name) + nchar(space) + nchar(notes),
+  mutate(name_length = nchar(name),
+         space_length = nchar(space),
+         description_length = nchar(description),
+         has_notes = nchar(notes),
          has_transit = ifelse(nchar(transit) != 0, 1, 0),
          has_hrules = ifelse(nchar(house_rules) != 0, 1, 0),
          has_sdeposit = ifelse(security_deposit > 0, 1, 0),
-         has_cleaning_fee = ifelse(cleaning_fee > 0, 1, 0)) %>%
+         has_cleaning_fee = ifelse(cleaning_fee > 0, 1, 0),
+         is_apartment = ifelse(property_type == "Apartment", 1, 0) %>% as.factor(),
+         is_hotel = ifelse(property_type == "Hotel", 1, 0) %>% as.factor(),
+         is_house = ifelse(property_type == "House", 1, 0) %>% as.factor(),
+         is_loft = ifelse(property_type == "Loft", 1, 0) %>% as.factor(),
+         is_townhouse = ifelse(property_type == "Townhouse", 1, 0) %>% as.factor(),
+         is_condo = ifelse(property_type == "Condominium", 1, 0) %>% as.factor(),
+         has_cleaning = ifelse(cleaning_fee > 0, 1, 0) %>% as.factor()) %>%
   filter(!is.na(beds))
   
 
 
 test <- test %>%
-  mutate(description_length = nchar(description) + nchar(name) + nchar(space) + nchar(notes),
+  mutate(name_length = nchar(name),
+         space_length = nchar(space),
+         description_length = nchar(description),
+         has_notes = nchar(notes),
          has_transit = ifelse(nchar(transit) != 0, 1, 0),
          has_hrules = ifelse(nchar(house_rules) != 0, 1, 0),
          has_sdeposit = ifelse(security_deposit > 0, 1, 0),
-         has_cleaning_fee = ifelse(cleaning_fee > 0, 1, 0)) %>%
+         has_cleaning_fee = ifelse(cleaning_fee > 0, 1, 0),
+         is_apartment = ifelse(property_type == "Apartment", 1, 0) %>% as.factor(),
+         is_hotel = ifelse(property_type == "Hotel", 1, 0) %>% as.factor(),
+         is_house = ifelse(property_type == "House", 1, 0) %>% as.factor(),
+         is_loft = ifelse(property_type == "Loft", 1, 0) %>% as.factor(),
+         is_townhouse = ifelse(property_type == "Townhouse", 1, 0) %>% as.factor(),
+         is_condo = ifelse(property_type == "Condominium", 1, 0) %>% as.factor(),
+         has_cleaning = ifelse(cleaning_fee > 0, 1, 0) %>% as.factor()) %>%
   filter(!is.na(beds))
 
 scoring <- scoring %>%
-  mutate(description_length = nchar(description) + nchar(name) + nchar(space) + nchar(notes),
+  mutate(name_length = nchar(name),
+         space_length = nchar(space),
+         description_length = nchar(description),
+         has_notes = nchar(notes),
          has_transit = ifelse(nchar(transit) != 0, 1, 0),
          has_hrules = ifelse(nchar(house_rules) != 0, 1, 0),
          has_sdeposit = ifelse(security_deposit > 0, 1, 0),
-         has_cleaning_fee = ifelse(cleaning_fee > 0, 1, 0))
-
-### Whether property is apartment
-clean_train <- clean_train %>%
-  mutate(is_apartment = ifelse(property_type == "Apartment", 1, 0) %>% as.factor(),
+         has_cleaning_fee = ifelse(cleaning_fee > 0, 1, 0),
+         is_apartment = ifelse(property_type == "Apartment", 1, 0) %>% as.factor(),
+         is_hotel = ifelse(property_type == "Hotel", 1, 0) %>% as.factor(),
+         is_house = ifelse(property_type == "House", 1, 0) %>% as.factor(),
+         is_loft = ifelse(property_type == "Loft", 1, 0) %>% as.factor(),
+         is_townhouse = ifelse(property_type == "Townhouse", 1, 0) %>% as.factor(),
+         is_condo = ifelse(property_type == "Condominium", 1, 0) %>% as.factor(),
          has_cleaning = ifelse(cleaning_fee > 0, 1, 0) %>% as.factor())
 
-test <- test %>%
-  mutate(is_apartment = ifelse(property_type == "Apartment", 1, 0) %>% as.factor(),
-         has_cleaning = ifelse(cleaning_fee > 0, 1, 0) %>% as.factor())
 
-scoring <- scoring %>%
-  mutate(is_apartment = ifelse(property_type == "Apartment", 1, 0) %>% as.factor(),
-         has_cleaning = ifelse(cleaning_fee > 0, 1, 0) %>% as.factor())
-
-# Feature engineering from amenities
+### Feature engineering from amenities
 # TV
 locs <- grepl(pattern = "TV", clean_train$amenities)
 clean_train$has_TV <- 0
@@ -251,8 +266,6 @@ scoring$has_HT[locs] <- 1
 scoring$has_HT <- as.factor(scoring$has_HT)
 
 
-
-
 # Breakfast
 
 locs <- grepl(pattern = "Breakfast", clean_train$amenities)
@@ -287,6 +300,59 @@ scoring$has_GY <- 0
 scoring$has_GY[locs] <- 1
 scoring$has_GY <- as.factor(scoring$has_GY)
 
+
+locs <- grepl(pattern = "Doorman", clean_train$amenities)
+clean_train$has_DM <- 0
+clean_train$has_DM[locs] <- 1
+clean_train$has_DM <- as.factor(clean_train$has_DM)
+locs <- grepl(pattern = "Doorman", test$amenities)
+test$has_DM <- 0
+test$has_DM[locs] <- 1
+test$has_DM <- as.factor(test$has_DM)
+locs <- grepl(pattern = "Doorman", scoring$amenities)
+scoring$has_DM <- 0
+scoring$has_DM[locs] <- 1
+scoring$has_DM <- as.factor(scoring$has_DM)
+
+locs <- grepl(pattern = "Elevator", clean_train$amenities)
+clean_train$has_EV <- 0
+clean_train$has_EV[locs] <- 1
+clean_train$has_EV <- as.factor(clean_train$has_EV)
+locs <- grepl(pattern = "Elevator", test$amenities)
+test$has_EV <- 0
+test$has_EV[locs] <- 1
+test$has_EV <- as.factor(test$has_EV)
+locs <- grepl(pattern = "Elevator", scoring$amenities)
+scoring$has_EV <- 0
+scoring$has_EV[locs] <- 1
+scoring$has_EV <- as.factor(scoring$has_EV)
+
+locs <- grepl(pattern = "Pool", clean_train$amenities)
+clean_train$has_PL <- 0
+clean_train$has_PL[locs] <- 1
+clean_train$has_PL <- as.factor(clean_train$has_PL)
+locs <- grepl(pattern = "Pool", test$amenities)
+test$has_PL <- 0
+test$has_PL[locs] <- 1
+test$has_PL <- as.factor(test$has_PL)
+locs <- grepl(pattern = "Pool", scoring$amenities)
+scoring$has_PL <- 0
+scoring$has_PL[locs] <- 1
+scoring$has_PL <- as.factor(scoring$has_PL)
+
+locs <- grepl(pattern = "Essentials", clean_train$amenities)
+clean_train$has_ES <- 0
+clean_train$has_ES[locs] <- 1
+clean_train$has_ES <- as.factor(clean_train$has_ES)
+locs <- grepl(pattern = "Essentials", test$amenities)
+test$has_ES <- 0
+test$has_ES[locs] <- 1
+test$has_ES <- as.factor(test$has_ES)
+locs <- grepl(pattern = "Essentials", scoring$amenities)
+scoring$has_ES <- 0
+scoring$has_ES[locs] <- 1
+scoring$has_ES <- as.factor(scoring$has_ES)
+
 # Has subway
 locs <- grepl(pattern = "subway", clean_train$description)
 clean_train$has_SB <- 0
@@ -303,12 +369,7 @@ scoring$has_SB <- 0
 scoring$has_SB[locs] <- 1
 scoring$has_SB <- as.factor(scoring$has_SB)
 
-
-
-
-
 ########## REVIEWS ##########
-
 
 clean_train <- clean_train %>%
   mutate(first_review = as.Date(first_review),
@@ -330,7 +391,6 @@ scoring <- scoring %>%
 
 
 ### Listing time = Last review - first review
-
 clean_train$first_review <- as.Date(clean_train$first_review)
 clean_train$last_review <- as.Date(clean_train$last_review)
 clean_train$listing_time <- clean_train$last_review - clean_train$first_review
@@ -344,12 +404,8 @@ scoring$last_review <- as.Date(scoring$last_review)
 scoring$listing_time <- scoring$last_review - scoring$first_review
 
 
-
-
-
 ### More cleaning - repeated on clean, test and scoring
 
-clean_train$zipcode2[is.na(clean_train$zipcode2)] <- mean(clean_train$zipcode2, na.rm = T)
 clean_train$host_since2[is.na(clean_train$host_since2)] <- mean(clean_train$host_since2, na.rm = T)
 clean_train$first_rev_days[is.na(clean_train$first_rev_days)] <- mean(clean_train$first_rev_days, na.rm = T)
 clean_train$last_rev_days[is.na(clean_train$last_rev_days)] <- mean(clean_train$last_rev_days, na.rm = T)
@@ -362,9 +418,8 @@ clean_train$cleaning_fee[is.na(clean_train$cleaning_fee)] <- mean(clean_train$cl
 clean_train$host_since <- as.Date(clean_train$host_since)
 clean_train$host_year <- year(clean_train$host_since)
 clean_train$host_year[is.na(clean_train$host_year)] <- mean(clean_train$host_year, na.rm = T)
+clean_train$host_about_length[is.na(clean_train$host_about_length)] <- mean(clean_train$host_about_length, na.rm = T)
 
-
-test$zipcode2[is.na(test$zipcode2)] <- mean(test$zipcode2, na.rm = T)
 test$host_since2[is.na(test$host_since2)] <- mean(test$host_since2, na.rm = T)
 test$first_rev_days[is.na(test$first_rev_days)] <- mean(test$first_rev_days, na.rm = T)
 test$last_rev_days[is.na(test$last_rev_days)] <- mean(test$last_rev_days, na.rm = T)
@@ -377,10 +432,9 @@ test$cleaning_fee[is.na(test$cleaning_fee)] <- mean(test$cleaning_fee, na.rm = T
 test$host_since <- as.Date(test$host_since)
 test$host_year <- year(test$host_since)
 test$host_year[is.na(test$host_year)] <- mean(test$host_year, na.rm = T)
+test$host_about_length[is.na(test$host_about_length)] <- mean(test$host_about_length, na.rm = T)
 
 
-
-scoring$zipcode2[is.na(scoring$zipcode2)] <- mean(scoring$zipcode2, na.rm = T)
 scoring$host_since2[is.na(scoring$host_since2)] <- mean(scoring$host_since2, na.rm = T)
 scoring$first_rev_days[is.na(scoring$first_rev_days)] <- mean(scoring$first_rev_days, na.rm = T)
 scoring$last_rev_days[is.na(scoring$last_rev_days)] <- mean(scoring$last_rev_days, na.rm = T)
@@ -393,10 +447,10 @@ scoring$cleaning_fee[is.na(scoring$cleaning_fee)] <- mean(scoring$cleaning_fee, 
 scoring$host_since <- as.Date(scoring$host_since)
 scoring$host_year <- year(scoring$host_since)
 scoring$host_year[is.na(scoring$host_year)] <- mean(scoring$host_year, na.rm = T)
+scoring$host_about_length[is.na(scoring$host_about_length)] <- mean(scoring$host_about_length, na.rm = T)
 
 
-
-########## SAVE CEALNING OUTPUTS ##########
+########## SAVE CLEANING OUTPUTS ##########
 
 save(clean_train, file = "Cleaned_data/train.Rdata")
 save(test, file = "Cleaned_data/test.Rdata")
