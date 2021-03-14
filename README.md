@@ -28,7 +28,7 @@ To address these complications, a consistent project workflow was developed to c
 
 The modeling framework used in this project is illustrated in Figure 1 overleaf. 
 
-![Modeling framework](modelingFramework.jpg)
+![Modeling framework](assets/modelingFramework.jpg)
 
 
 The framework consists of four components: reading and tidying data, data transformation, modeling, and inference. Data were imported into R and tidied so that it was appropriate for modeling. Then, the cyclical and iterative process of data transformation, modeling, inference and analysis proceeded to find the optimal model that resulted in the lowest RMSE.
